@@ -230,6 +230,59 @@ Beklenen çıktı: Az önce oluşturduğunuz JSON içeriği.
 
 > 💡 `pub_key` alanı kayıtlı BLS key'inizle eşleşmelidir — bu, dashboard'da taklit edilmenizi engeller.
 
+### Validator Logosu Ekleme (Opsiyonel)
+
+Espresso staking dashboard'unda logonuzu görüntülemek için metadata dosyasına `icon` alanı ekleyebilirsiniz.
+
+**1. Logo görseli hazırlayın** (JPG veya PNG, minimum 400x400px önerilir) ve sunucuya gönderin:
+
+```bash
+scp /yerel/yol/logo.jpg root@SUNUCU_IP:/var/www/html/espresso/logo.jpg
+```
+
+**2. ImageMagick kurarak icon boyutlarını oluşturun:**
+
+```bash
+apt-get install -y imagemagick && \
+cd /var/www/html/espresso/ && \
+convert logo.jpg -resize 14x14 icon-14@1x.png && \
+convert logo.jpg -resize 28x28 icon-14@2x.png && \
+convert logo.jpg -resize 42x42 icon-14@3x.png && \
+convert logo.jpg -resize 24x24 icon-24@1x.png && \
+convert logo.jpg -resize 48x48 icon-24@2x.png && \
+convert logo.jpg -resize 72x72 icon-24@3x.png && \
+chown www-data:www-data icon-*.png && \
+chmod 644 icon-*.png
+```
+
+**3. metadata.json dosyasını icon URL'leriyle güncelleyin:**
+
+```bash
+cat > /var/www/html/espresso/metadata.json << 'EOF'
+{
+  "pub_key": "BLS_VER_KEY~BURAYA_PUBLIC_STAKING_KEY_YAZIN",
+  "name": "ValidatorAdiniz",
+  "description": "Açıklamanız",
+  "company_name": "Şirket Adınız",
+  "company_website": "https://websiteniz.com",
+  "icon": {
+    "14x14": {
+      "@1x": "http://SUNUCU_IP/espresso/icon-14@1x.png",
+      "@2x": "http://SUNUCU_IP/espresso/icon-14@2x.png",
+      "@3x": "http://SUNUCU_IP/espresso/icon-14@3x.png"
+    },
+    "24x24": {
+      "@1x": "http://SUNUCU_IP/espresso/icon-24@1x.png",
+      "@2x": "http://SUNUCU_IP/espresso/icon-24@2x.png",
+      "@3x": "http://SUNUCU_IP/espresso/icon-24@3x.png"
+    }
+  }
+}
+EOF
+```
+
+> 💡 Node restart gerekmez — metadata değişiklikleri anında yansır.
+
 ---
 
 ## Adım 6 — Ethereum Cüzdanı Hazırlama
