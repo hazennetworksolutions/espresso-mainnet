@@ -265,23 +265,33 @@ cat > /var/www/html/espresso/metadata.json << 'EOF'
   "description": "Açıklamanız",
   "company_name": "Şirket Adınız",
   "company_website": "https://websiteniz.com",
+  "client_version": "20260512",
   "icon": {
     "14x14": {
-      "@1x": "http://SUNUCU_IP/espresso/icon-14@1x.png",
-      "@2x": "http://SUNUCU_IP/espresso/icon-14@2x.png",
-      "@3x": "http://SUNUCU_IP/espresso/icon-14@3x.png"
+      "@1x": "https://DOMAININIZ/espresso/icon-14@1x.png",
+      "@2x": "https://DOMAININIZ/espresso/icon-14@2x.png",
+      "@3x": "https://DOMAININIZ/espresso/icon-14@3x.png"
     },
     "24x24": {
-      "@1x": "http://SUNUCU_IP/espresso/icon-24@1x.png",
-      "@2x": "http://SUNUCU_IP/espresso/icon-24@2x.png",
-      "@3x": "http://SUNUCU_IP/espresso/icon-24@3x.png"
+      "@1x": "https://DOMAININIZ/espresso/icon-24@1x.png",
+      "@2x": "https://DOMAININIZ/espresso/icon-24@2x.png",
+      "@3x": "https://DOMAININIZ/espresso/icon-24@3x.png"
     }
   }
 }
 EOF
 ```
 
+> ⚠️ **Icon URL'leri HTTPS olmalıdır** — `http://` ile yazılan URL'ler staking dashboard tarafından render edilmez.  
 > 💡 Node restart gerekmez — metadata değişiklikleri anında yansır.
+
+**4. Yayınlamadan önce metadata'yı doğrulayın:**
+
+```bash
+docker run --rm \
+  ghcr.io/espressosystems/espresso-sequencer/staking-cli:main \
+  staking-cli preview-metadata --metadata-uri http://SUNUCU_IP/espresso/metadata.json
+```
 
 ---
 
