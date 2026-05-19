@@ -14,8 +14,8 @@ _Docker installation, key generation, validator registration, systemd service se
 
 > **Author:** HazenNetworkSolutions  
 > **Network:** Espresso Mainnet 1  
-> **Image Tag:** 20260407  
-> **Last Updated:** May 2026
+> **Image Tag:** 20260512  
+> **Last Updated:** 19 May 2026
 
 ---
 
@@ -97,7 +97,7 @@ mkdir -p /opt/espresso/keys /opt/espresso/store
 Pull the Espresso sequencer image (Mainnet 1):
 
 ```bash
-docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260407
+docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512
 ```
 
 Pull the staking CLI image:
@@ -118,7 +118,7 @@ Run the key generator to create your BLS (staking) and Schnorr (state) keys:
 
 ```bash
 docker run -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260407 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
   keygen -o /keys
 ```
 
@@ -138,12 +138,44 @@ ESPRESSO_SEQUENCER_PUBLIC_STATE_KEY=SCHNORR_VER_KEY~...
 ESPRESSO_SEQUENCER_PRIVATE_STATE_KEY=SCHNORR_SIGNING_KEY~...
 ```
 
+Next, generate the **x25519 key** (required for the upcoming Cliquenet protocol upgrade) and append it to the same file:
+
+```bash
+docker run --rm \
+  -v /opt/espresso/keys:/keys \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  keygen --scheme x25519 -o /keys
+```
+
+This command overwrites `0.env` with only the x25519 key. You must manually reconstruct the full key file by combining all keys:
+
+```bash
+cat > /opt/espresso/keys/0.env << 'EOF'
+# Seed: YOUR_ORIGINAL_SEED_HERE
+ESPRESSO_SEQUENCER_PUBLIC_STAKING_KEY=BLS_VER_KEY~YOUR_BLS_PUBLIC_KEY
+ESPRESSO_SEQUENCER_PRIVATE_STAKING_KEY=BLS_SIGNING_KEY~YOUR_BLS_PRIVATE_KEY
+ESPRESSO_SEQUENCER_PUBLIC_STATE_KEY=SCHNORR_VER_KEY~YOUR_SCHNORR_PUBLIC_KEY
+ESPRESSO_SEQUENCER_PRIVATE_STATE_KEY=SCHNORR_SIGNING_KEY~YOUR_SCHNORR_PRIVATE_KEY
+ESPRESSO_SEQUENCER_PUBLIC_X25519_KEY=YOUR_X25519_PUBLIC_KEY
+ESPRESSO_SEQUENCER_PRIVATE_X25519_KEY=X25519_SK~YOUR_X25519_PRIVATE_KEY
+EOF
+```
+
+Verify all 3 public keys are present:
+
+```bash
+grep "PUBLIC" /opt/espresso/keys/0.env
+```
+
+You should see 3 lines: `PUBLIC_STAKING_KEY`, `PUBLIC_STATE_KEY`, `PUBLIC_X25519_KEY`.
+
 > 🔐 **CRITICAL: Back up the following immediately to a secure location (password manager, external drive):**
 >
 > | Key | Prefix | Description |
 > | --- | ------ | ----------- |
 > | `ESPRESSO_SEQUENCER_PRIVATE_STAKING_KEY` | `BLS_SIGNING_KEY~...` | Signs consensus messages |
 > | `ESPRESSO_SEQUENCER_PRIVATE_STATE_KEY` | `SCHNORR_SIGNING_KEY~...` | Signs finalized states |
+> | `ESPRESSO_SEQUENCER_PRIVATE_X25519_KEY` | `X25519_SK~...` | Required for Cliquenet protocol upgrade |
 > | `Seed` | hex string | Used to regenerate keys |
 >
 > Download to your local machine:
@@ -339,7 +371,7 @@ ExecStart=/usr/bin/docker run --name espresso \
   -v /opt/espresso/store:/store \
   -p 8585:8585 \
   -p 9000:9000/udp \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260407 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
   sequencer -- http -- catchup -- status
 ExecStop=/usr/bin/docker stop espresso
 
@@ -433,6 +465,49 @@ Apply here: [Bootstrap Program Application Form](https://docs.google.com/forms/d
 
 ---
 
+## Backup & Recovery
+
+### What Must Be Backed Up
+
+| File / Info | Critical | Notes |
+|---|---|---|
+| `/opt/espresso/keys/0.env` | 🔴 YES | Contains all 3 private keys — **cannot be recovered if lost** |
+| Ethereum wallet mnemonic | 🔴 YES | Required for all L1 operations (rewards, commission, deregister) |
+| `/opt/espresso/espresso.env` | 🟡 Recommended | Infura key + server IP — easily recreated but good to have |
+
+### Backing Up Keys
+
+Before running any `keygen` command, always create a backup first:
+
+```bash
+cp /opt/espresso/keys/0.env /opt/espresso/keys/0.env.backup
+```
+
+Download `0.env` to your local machine:
+
+```bash
+scp root@YOUR_SERVER_IP:/opt/espresso/keys/0.env ~/espresso-keys-backup.env
+```
+
+Save the contents in a password manager (Bitwarden, 1Password, etc.).
+
+> ⚠️ **Warning:** The `keygen --scheme x25519` command **overwrites** `0.env` entirely. Always back up before running any keygen command.
+
+### Recovery: Moving to a New Server
+
+If you lose access to your server but have your `0.env` backup:
+
+1. Set up a new server following this guide from Step 1
+2. Restore your key file:
+   ```bash
+   scp ~/espresso-keys-backup.env root@NEW_SERVER_IP:/opt/espresso/keys/0.env
+   ```
+3. Update `ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS` in `espresso.env` with the new server IP
+4. Update `metadata.json` with the new server IP (if using IP-based URL)
+5. Start the node — **no re-registration on Ethereum needed**, your validator identity is preserved
+
+---
+
 ## Monitoring the Node
 
 **Check service status:**
@@ -483,13 +558,11 @@ When a new image version is released:
 docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:NEW_TAG
 ```
 
-2. Update the tag in the systemd service file:
+2. Update the tag in the systemd service file (replace `OLD_TAG` with the currently running tag):
 
 ```bash
-nano /etc/systemd/system/espresso.service
+sed -i 's/sequencer:OLD_TAG/sequencer:NEW_TAG/g' /etc/systemd/system/espresso.service
 ```
-
-Replace `20260407` with the new tag.
 
 3. Reload and restart:
 
