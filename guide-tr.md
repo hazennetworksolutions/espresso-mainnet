@@ -14,8 +14,8 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 
 > **Yazar:** HazenNetworkSolutions  
 > **Ağ:** Espresso Mainnet 1  
-> **Image Tag:** 20260407  
-> **Son Güncelleme:** Mayıs 2026
+> **Image Tag:** 20260512  
+> **Son Güncelleme:** 19 Mayıs 2026
 
 ---
 
@@ -97,7 +97,7 @@ mkdir -p /opt/espresso/keys /opt/espresso/store
 Espresso sequencer image'ını indirin (Mainnet 1):
 
 ```bash
-docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260407
+docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512
 ```
 
 Staking CLI image'ını indirin:
@@ -118,7 +118,7 @@ BLS (staking) ve Schnorr (state) key'lerinizi oluşturmak için key generator'ı
 
 ```bash
 docker run -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260407 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
   keygen -o /keys
 ```
 
@@ -138,12 +138,44 @@ ESPRESSO_SEQUENCER_PUBLIC_STATE_KEY=SCHNORR_VER_KEY~...
 ESPRESSO_SEQUENCER_PRIVATE_STATE_KEY=SCHNORR_SIGNING_KEY~...
 ```
 
+Ardından **x25519 key** oluşturun (yaklaşan Cliquenet protokol yükseltmesi için gerekli):
+
+```bash
+docker run --rm \
+  -v /opt/espresso/keys:/keys \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  keygen --scheme x25519 -o /keys
+```
+
+Bu komut `0.env` dosyasını yalnızca x25519 key ile overwrite eder. Tüm key'leri birleştirerek dosyayı manuel olarak yeniden oluşturmanız gerekir:
+
+```bash
+cat > /opt/espresso/keys/0.env << 'EOF'
+# Seed: BURAYA_ORIJINAL_SEED_YAZIN
+ESPRESSO_SEQUENCER_PUBLIC_STAKING_KEY=BLS_VER_KEY~BLS_PUBLIC_KEY
+ESPRESSO_SEQUENCER_PRIVATE_STAKING_KEY=BLS_SIGNING_KEY~BLS_PRIVATE_KEY
+ESPRESSO_SEQUENCER_PUBLIC_STATE_KEY=SCHNORR_VER_KEY~SCHNORR_PUBLIC_KEY
+ESPRESSO_SEQUENCER_PRIVATE_STATE_KEY=SCHNORR_SIGNING_KEY~SCHNORR_PRIVATE_KEY
+ESPRESSO_SEQUENCER_PUBLIC_X25519_KEY=X25519_PUBLIC_KEY
+ESPRESSO_SEQUENCER_PRIVATE_X25519_KEY=X25519_SK~X25519_PRIVATE_KEY
+EOF
+```
+
+3 public key'in mevcut olduğunu doğrulayın:
+
+```bash
+grep "PUBLIC" /opt/espresso/keys/0.env
+```
+
+3 satır görmelisiniz: `PUBLIC_STAKING_KEY`, `PUBLIC_STATE_KEY`, `PUBLIC_X25519_KEY`.
+
 > 🔐 **KRİTİK: Aşağıdaki bilgileri hemen güvenli bir yere yedekleyin (şifre yöneticisi, harici disk):**
 >
 > | Key | Ön Ek | Açıklama |
 > | --- | ----- | -------- |
 > | `ESPRESSO_SEQUENCER_PRIVATE_STAKING_KEY` | `BLS_SIGNING_KEY~...` | Consensus mesajlarını imzalar |
 > | `ESPRESSO_SEQUENCER_PRIVATE_STATE_KEY` | `SCHNORR_SIGNING_KEY~...` | Finalize edilmiş state'leri imzalar |
+> | `ESPRESSO_SEQUENCER_PRIVATE_X25519_KEY` | `X25519_SK~...` | Cliquenet protokol yükseltmesi için gerekli |
 > | `Seed` | hex string | Key'leri yeniden üretmek için kullanılır |
 >
 > Yerel bilgisayarınıza indirin:
@@ -339,7 +371,7 @@ ExecStart=/usr/bin/docker run --name espresso \
   -v /opt/espresso/store:/store \
   -p 8585:8585 \
   -p 9000:9000/udp \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260407 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
   sequencer -- http -- catchup -- status
 ExecStop=/usr/bin/docker stop espresso
 
@@ -432,6 +464,49 @@ Başvuru formu: [Bootstrap Program Başvuru Formu](https://docs.google.com/forms
 
 ---
 
+## Yedekleme ve Kurtarma
+
+### Yedeklenmesi Gerekenler
+
+| Dosya / Bilgi | Kritik | Notlar |
+|---|---|---|
+| `/opt/espresso/keys/0.env` | 🔴 EVET | 3 private key'i içerir — **kaybolursa kurtarılamaz** |
+| Ethereum wallet mnemonic | 🔴 EVET | Tüm L1 işlemleri için gerekli (ödüller, komisyon, kayıt silme) |
+| `/opt/espresso/espresso.env` | 🟡 Önerilir | Infura key + sunucu IP — kolayca yeniden oluşturulabilir ama yedeklemek iyi |
+
+### Key Yedekleme
+
+Herhangi bir `keygen` komutu çalıştırmadan önce mutlaka yedek alın:
+
+```bash
+cp /opt/espresso/keys/0.env /opt/espresso/keys/0.env.backup
+```
+
+`0.env` dosyasını yerel bilgisayarınıza indirin:
+
+```bash
+scp root@SUNUCU_IP:/opt/espresso/keys/0.env ~/espresso-keys-yedek.env
+```
+
+İçeriği bir şifre yöneticisine kaydedin (Bitwarden, 1Password vb.).
+
+> ⚠️ **Uyarı:** `keygen --scheme x25519` komutu `0.env` dosyasını **tamamen overwrite eder**. Herhangi bir keygen komutu çalıştırmadan önce mutlaka yedek alın.
+
+### Kurtarma: Yeni Sunucuya Geçiş
+
+Sunucuya erişiminizi kaybetseniz bile `0.env` yedeğiniz varsa:
+
+1. Yeni sunucuya bu rehberin 1. adımından itibaren kurulumu yapın
+2. Key dosyasını geri yükleyin:
+   ```bash
+   scp ~/espresso-keys-yedek.env root@YENI_SUNUCU_IP:/opt/espresso/keys/0.env
+   ```
+3. `espresso.env` dosyasındaki `ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS` değerini yeni sunucu IP'siyle güncelleyin
+4. Yeni sunucu IP'sini `metadata.json` dosyasına da güncelleyin (IP tabanlı URL kullanıyorsanız)
+5. Node'u başlatın — **Ethereum'a yeniden kayıt gerekmez**, validator kimliğiniz korunur
+
+---
+
 ## Node İzleme
 
 **Servis durumunu kontrol etme:**
@@ -482,13 +557,11 @@ Yeni bir image versiyonu yayınlandığında:
 docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:YENI_TAG
 ```
 
-2. Systemd servis dosyasındaki tag'i güncelleyin:
+2. Systemd servis dosyasındaki tag'i güncelleyin (`ESKI_TAG` yerine o an çalışan tag'i yazın):
 
 ```bash
-nano /etc/systemd/system/espresso.service
+sed -i 's/sequencer:ESKI_TAG/sequencer:YENI_TAG/g' /etc/systemd/system/espresso.service
 ```
-
-`20260407` yazan yeri yeni tag ile değiştirin.
 
 3. Yeniden yükleyin ve başlatın:
 
