@@ -265,23 +265,33 @@ cat > /var/www/html/espresso/metadata.json << 'EOF'
   "description": "Your description here",
   "company_name": "Your Company Name",
   "company_website": "https://yourwebsite.com",
+  "client_version": "20260512",
   "icon": {
     "14x14": {
-      "@1x": "http://YOUR_SERVER_IP/espresso/icon-14@1x.png",
-      "@2x": "http://YOUR_SERVER_IP/espresso/icon-14@2x.png",
-      "@3x": "http://YOUR_SERVER_IP/espresso/icon-14@3x.png"
+      "@1x": "https://YOUR_DOMAIN/espresso/icon-14@1x.png",
+      "@2x": "https://YOUR_DOMAIN/espresso/icon-14@2x.png",
+      "@3x": "https://YOUR_DOMAIN/espresso/icon-14@3x.png"
     },
     "24x24": {
-      "@1x": "http://YOUR_SERVER_IP/espresso/icon-24@1x.png",
-      "@2x": "http://YOUR_SERVER_IP/espresso/icon-24@2x.png",
-      "@3x": "http://YOUR_SERVER_IP/espresso/icon-24@3x.png"
+      "@1x": "https://YOUR_DOMAIN/espresso/icon-24@1x.png",
+      "@2x": "https://YOUR_DOMAIN/espresso/icon-24@2x.png",
+      "@3x": "https://YOUR_DOMAIN/espresso/icon-24@3x.png"
     }
   }
 }
 EOF
 ```
 
+> ⚠️ **Icon URLs must use HTTPS** — plain `http://` URLs are not rendered by the staking dashboard.  
 > 💡 No node restart required — metadata changes take effect immediately.
+
+**4. Preview and validate metadata before publishing:**
+
+```bash
+docker run --rm \
+  ghcr.io/espressosystems/espresso-sequencer/staking-cli:main \
+  staking-cli preview-metadata --metadata-uri http://YOUR_SERVER_IP/espresso/metadata.json
+```
 
 ---
 
