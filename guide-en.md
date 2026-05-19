@@ -230,6 +230,59 @@ Expected output: the JSON content you just created.
 
 > 💡 The `pub_key` field must match your registered BLS key — this prevents impersonation on the dashboard.
 
+### Adding a Validator Logo (Optional)
+
+You can display your logo on the Espresso staking dashboard by adding an `icon` field to your metadata.
+
+**1. Prepare your logo image** (JPG or PNG, minimum 400x400px recommended) and copy it to the server:
+
+```bash
+scp /path/to/logo.jpg root@YOUR_SERVER_IP:/var/www/html/espresso/logo.jpg
+```
+
+**2. Install ImageMagick and generate icon sizes:**
+
+```bash
+apt-get install -y imagemagick && \
+cd /var/www/html/espresso/ && \
+convert logo.jpg -resize 14x14 icon-14@1x.png && \
+convert logo.jpg -resize 28x28 icon-14@2x.png && \
+convert logo.jpg -resize 42x42 icon-14@3x.png && \
+convert logo.jpg -resize 24x24 icon-24@1x.png && \
+convert logo.jpg -resize 48x48 icon-24@2x.png && \
+convert logo.jpg -resize 72x72 icon-24@3x.png && \
+chown www-data:www-data icon-*.png && \
+chmod 644 icon-*.png
+```
+
+**3. Update metadata.json with the icon URLs:**
+
+```bash
+cat > /var/www/html/espresso/metadata.json << 'EOF'
+{
+  "pub_key": "BLS_VER_KEY~YOUR_PUBLIC_STAKING_KEY_HERE",
+  "name": "YourValidatorName",
+  "description": "Your description here",
+  "company_name": "Your Company Name",
+  "company_website": "https://yourwebsite.com",
+  "icon": {
+    "14x14": {
+      "@1x": "http://YOUR_SERVER_IP/espresso/icon-14@1x.png",
+      "@2x": "http://YOUR_SERVER_IP/espresso/icon-14@2x.png",
+      "@3x": "http://YOUR_SERVER_IP/espresso/icon-14@3x.png"
+    },
+    "24x24": {
+      "@1x": "http://YOUR_SERVER_IP/espresso/icon-24@1x.png",
+      "@2x": "http://YOUR_SERVER_IP/espresso/icon-24@2x.png",
+      "@3x": "http://YOUR_SERVER_IP/espresso/icon-24@3x.png"
+    }
+  }
+}
+EOF
+```
+
+> 💡 No node restart required — metadata changes take effect immediately.
+
 ---
 
 ## Step 6 — Prepare Ethereum Wallet
