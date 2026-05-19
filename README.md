@@ -14,8 +14,8 @@ _Docker installation, key generation, validator registration, systemd service se
 
 > **Author:** HazenNetworkSolutions  
 > **Network:** Espresso Mainnet 1  
-> **Image Tag:** 20260407  
-> **Last Updated:** May 2026
+> **Image Tag:** 20260512  
+> **Last Updated:** 19 May 2026
 
 ---
 
