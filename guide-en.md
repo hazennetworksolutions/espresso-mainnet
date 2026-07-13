@@ -14,8 +14,8 @@ _Docker installation, key generation, validator registration, systemd service se
 
 > **Author:** HazenNetworkSolutions  
 > **Network:** Espresso Mainnet 1  
-> **Image Tag:** 20260512  
-> **Last Updated:** 19 May 2026
+> **Image Tag:** 20260710  
+> **Last Updated:** 14 July 2026
 
 ---
 
@@ -37,6 +37,7 @@ _Docker installation, key generation, validator registration, systemd service se
 - [Step 13 — Apply to Bootstrap Program](#step-13--apply-to-bootstrap-program)
 - [Monitoring the Node](#monitoring-the-node)
 - [Updating the Node](#updating-the-node)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -97,7 +98,7 @@ mkdir -p /opt/espresso/keys /opt/espresso/store
 Pull the Espresso sequencer image (Mainnet 1):
 
 ```bash
-docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512
+docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710
 ```
 
 Pull the staking CLI image:
@@ -118,7 +119,7 @@ Run the key generator to create your BLS (staking) and Schnorr (state) keys:
 
 ```bash
 docker run -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
   keygen -o /keys
 ```
 
@@ -143,7 +144,7 @@ Next, generate the **x25519 key** (required for the upcoming Cliquenet protocol 
 ```bash
 docker run --rm \
   -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
   keygen --scheme x25519 -o /keys
 ```
 
@@ -265,7 +266,7 @@ cat > /var/www/html/espresso/metadata.json << 'EOF'
   "description": "Your description here",
   "company_name": "Your Company Name",
   "company_website": "https://yourwebsite.com",
-  "client_version": "20260512",
+  "client_version": "20260710",
   "icon": {
     "14x14": {
       "@1x": "https://YOUR_DOMAIN/espresso/icon-14@1x.png",
@@ -325,6 +326,8 @@ Your endpoints will be:
 - **WebSocket:** `wss://mainnet.infura.io/ws/v3/YOUR_API_KEY`
 
 > 💡 A regular Espresso node uses approximately 15,000–20,000 API requests per day — well within the free tier limit.
+
+> 🔄 **Alternative providers:** If you notice a high missed-vote rate on the staking dashboard, it can be caused by L1 provider latency or intermittent 401/timeout errors. In that case, switching to [ValidationCloud](https://validationcloud.io) or [Tenderly](https://tenderly.co) (both offer generous free tiers) can help. Just replace the `L1_PROVIDER` / `L1_WS_PROVIDER` values in Step 9 with the new endpoints and restart the service — no re-registration needed.
 
 ---
 
@@ -396,12 +399,20 @@ ESPRESSO_SEQUENCER_STORAGE_PATH=/store
 ESPRESSO_SEQUENCER_KEY_FILE=/keys/0.env
 ESPRESSO_SEQUENCER_LIBP2P_BIND_ADDRESS=0.0.0.0:9000
 ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS=YOUR_SERVER_IP:9000
+ESPRESSO_NODE_STORAGE_PATH=/store
+ESPRESSO_NODE_TELEMETRY_LOGS_ENABLE=true
+ESPRESSO_NODE_TELEMETRY_METRICS_ENABLE=true
+ESPRESSO_NODE_IDENTITY_COMPANY_NAME=Your Company Name
+ESPRESSO_NODE_IDENTITY_NODE_NAME=YourValidatorName
 EOF
 ```
 
 Replace:
 - `YOUR_API_KEY` → your Infura API key (in both HTTP and WS lines)
 - `YOUR_SERVER_IP` → your server's public IPv4 address
+- `ESPRESSO_NODE_IDENTITY_COMPANY_NAME` / `ESPRESSO_NODE_IDENTITY_NODE_NAME` → your operator identity (same values as `company_name` / `name` in `metadata.json` from Step 5)
+
+> 💡 **Since the `20260710` release:** if `ESPRESSO_SEQUENCER_STORAGE_PATH` is set, `ESPRESSO_NODE_STORAGE_PATH` must be set to the same value. Telemetry vars let the Foundation collect your logs/metrics for network health monitoring — enabling them is recommended but optional. Identity vars are used to label your node in Foundation-side dashboards.
 
 Verify the file:
 
@@ -434,7 +445,7 @@ ExecStart=/usr/bin/docker run --name espresso \
   -v /opt/espresso/store:/store \
   -p 8585:8585 \
   -p 9000:9000/udp \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
   sequencer -- http -- catchup -- status
 ExecStop=/usr/bin/docker stop espresso
 
@@ -613,7 +624,7 @@ systemctl stop espresso
 
 ## Updating the Node
 
-When a new image version is released:
+When a new image version is released (announced in the Espresso Discord `#mainnet-node-operator` channel):
 
 1. Pull the new image:
 
@@ -627,19 +638,51 @@ docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:NEW_TAG
 sed -i 's/sequencer:OLD_TAG/sequencer:NEW_TAG/g' /etc/systemd/system/espresso.service
 ```
 
-3. Reload and restart:
+3. If the release notes mention new/renamed environment variables, add them to `/opt/espresso/espresso.env` (old variables usually keep working, but it's best to migrate).
+
+4. Reload and restart:
 
 ```bash
 systemctl daemon-reload && systemctl restart espresso
 ```
 
-4. Verify the node is running:
+5. Check startup logs for deprecated env var warnings:
 
 ```bash
-systemctl status espresso && curl -s http://localhost:8585/healthcheck
+sleep 15 && journalctl -u espresso --no-hostname -o cat -n 200 | grep -i "warning:"
 ```
 
-> 💡 Stay updated via the [Espresso Network GitHub Releases](https://github.com/EspressoSystems/espresso-network/releases) page.
+6. Verify the node is running and on the correct version:
+
+```bash
+systemctl status espresso && \
+curl -s http://localhost:8585/healthcheck && \
+curl -s http://localhost:8585/v1/status/metrics | grep consensus_version
+```
+
+7. Update `client_version` in your public metadata file:
+
+```bash
+sed -i 's/OLD_TAG/NEW_TAG/g' /var/www/html/espresso/metadata.json
+```
+
+> 💡 Stay updated via the [Espresso Network GitHub Releases](https://github.com/EspressoSystems/espresso-network/releases) page and the Discord `#mainnet-node-operator` channel.
+> 
+> ⚠️ Some releases include a DB migration for **query nodes** (nodes running the `query` module). If your `ExecStart` command does not include `query` in the module list, this does not apply to you. Query node operators should check `/database/migration-status` after updating — migrations can take up to several weeks and rolling back the binary during a migration is not supported.
+
+---
+
+## Troubleshooting
+
+**High missed-vote rate on the dashboard:**
+- Check `consensus_number_of_timeouts` in `/v1/status/metrics` — if it's climbing fast, something is wrong.
+- Check logs for `Event sender queue overflow` (ERROR level) — this indicates the node's internal event queue can't keep up, often caused by CPU/RAM contention from other services on the same server. Stop unrelated services and `systemctl restart espresso` to clear the queue.
+- Check logs for `L1 client error` / `401` — your L1 RPC provider may be rate-limited or misconfigured. See the alternative providers note in Step 7.
+- `AutoNAT: probe reports this node may not be publicly reachable` right after a restart is usually transient — recheck after a minute. If it persists, verify port `9000/UDP` is open and `ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS` matches your real public IP.
+
+**Node not signing at all:**
+- Verify `consensus_last_voted_view` is close to `consensus_current_view` (within 1–2) via `/v1/status/metrics`.
+- Verify your BLS key in `0.env` matches the key used at registration — a `keygen` command run without care can silently overwrite `0.env` (see Backup & Recovery section).
 
 ---
 
