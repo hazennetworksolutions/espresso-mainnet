@@ -14,8 +14,8 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 
 > **Yazar:** HazenNetworkSolutions  
 > **Ağ:** Espresso Mainnet 1  
-> **Image Tag:** 20260512  
-> **Son Güncelleme:** 19 Mayıs 2026
+> **Image Tag:** 20260710  
+> **Son Güncelleme:** 14 Temmuz 2026
 
 ---
 
@@ -37,6 +37,7 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 - [Adım 13 — Bootstrap Program'a Başvurma](#adım-13--bootstrap-programa-başvurma)
 - [Node İzleme](#node-i̇zleme)
 - [Node Güncelleme](#node-güncelleme)
+- [Sorun Giderme](#sorun-giderme)
 
 ---
 
@@ -97,7 +98,7 @@ mkdir -p /opt/espresso/keys /opt/espresso/store
 Espresso sequencer image'ını indirin (Mainnet 1):
 
 ```bash
-docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512
+docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710
 ```
 
 Staking CLI image'ını indirin:
@@ -118,7 +119,7 @@ BLS (staking) ve Schnorr (state) key'lerinizi oluşturmak için key generator'ı
 
 ```bash
 docker run -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
   keygen -o /keys
 ```
 
@@ -143,7 +144,7 @@ Ardından **x25519 key** oluşturun (yaklaşan Cliquenet protokol yükseltmesi i
 ```bash
 docker run --rm \
   -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
   keygen --scheme x25519 -o /keys
 ```
 
@@ -265,7 +266,7 @@ cat > /var/www/html/espresso/metadata.json << 'EOF'
   "description": "Açıklamanız",
   "company_name": "Şirket Adınız",
   "company_website": "https://websiteniz.com",
-  "client_version": "20260512",
+  "client_version": "20260710",
   "icon": {
     "14x14": {
       "@1x": "https://DOMAININIZ/espresso/icon-14@1x.png",
@@ -325,6 +326,8 @@ Endpoint'leriniz şu şekilde olacak:
 - **WebSocket:** `wss://mainnet.infura.io/ws/v3/API_KEY`
 
 > 💡 Normal bir Espresso node'u günde yaklaşık 15.000–20.000 API isteği yapar — ücretsiz plan limitinin çok altında.
+
+> 🔄 **Alternatif provider'lar:** Staking dashboard'da yüksek miss oranı görüyorsanız, bunun sebebi L1 provider'ın gecikmesi veya zaman zaman 401/timeout hataları olabilir. Bu durumda [ValidationCloud](https://validationcloud.io) veya [Tenderly](https://tenderly.co) (her ikisi de cömert ücretsiz plan sunuyor) gibi alternatiflere geçmek yardımcı olabilir. Adım 9'daki `L1_PROVIDER` / `L1_WS_PROVIDER` değerlerini yeni endpoint'lerle değiştirip servisi restart etmeniz yeterli — yeniden kayıt gerekmez.
 
 ---
 
@@ -396,12 +399,20 @@ ESPRESSO_SEQUENCER_STORAGE_PATH=/store
 ESPRESSO_SEQUENCER_KEY_FILE=/keys/0.env
 ESPRESSO_SEQUENCER_LIBP2P_BIND_ADDRESS=0.0.0.0:9000
 ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS=SUNUCU_IP:9000
+ESPRESSO_NODE_STORAGE_PATH=/store
+ESPRESSO_NODE_TELEMETRY_LOGS_ENABLE=true
+ESPRESSO_NODE_TELEMETRY_METRICS_ENABLE=true
+ESPRESSO_NODE_IDENTITY_COMPANY_NAME=Şirket Adınız
+ESPRESSO_NODE_IDENTITY_NODE_NAME=ValidatorAdiniz
 EOF
 ```
 
 Değiştirin:
 - `API_KEY` → Infura API key'iniz (hem HTTP hem WS satırlarında)
 - `SUNUCU_IP` → Sunucunuzun public IPv4 adresi
+- `ESPRESSO_NODE_IDENTITY_COMPANY_NAME` / `ESPRESSO_NODE_IDENTITY_NODE_NAME` → operatör kimliğiniz (Adım 5'teki `metadata.json` dosyasındaki `company_name` / `name` ile aynı değerler)
+
+> 💡 **`20260710` sürümünden itibaren:** `ESPRESSO_SEQUENCER_STORAGE_PATH` set edilmişse, `ESPRESSO_NODE_STORAGE_PATH` de aynı değerle set edilmelidir. Telemetry değişkenleri Foundation'ın log/metric verilerinizi ağ sağlığı izleme amacıyla toplamasını sağlar — açmanız önerilir ama zorunlu değil. Identity değişkenleri node'unuzu Foundation tarafındaki dashboard'larda etiketlemek için kullanılır.
 
 Dosyayı doğrulayın:
 
@@ -434,7 +445,7 @@ ExecStart=/usr/bin/docker run --name espresso \
   -v /opt/espresso/store:/store \
   -p 8585:8585 \
   -p 9000:9000/udp \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260512 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
   sequencer -- http -- catchup -- status
 ExecStop=/usr/bin/docker stop espresso
 
@@ -612,7 +623,7 @@ systemctl stop espresso
 
 ## Node Güncelleme
 
-Yeni bir image versiyonu yayınlandığında:
+Yeni bir image versiyonu yayınlandığında (Espresso Discord'unda `#mainnet-node-operator` kanalından duyurulur):
 
 1. Yeni image'ı indirin:
 
@@ -626,19 +637,51 @@ docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:YENI_TAG
 sed -i 's/sequencer:ESKI_TAG/sequencer:YENI_TAG/g' /etc/systemd/system/espresso.service
 ```
 
-3. Yeniden yükleyin ve başlatın:
+3. Sürüm notlarında yeni/yeniden adlandırılmış environment variable'lar belirtiliyorsa bunları `/opt/espresso/espresso.env`'e ekleyin (eski değişkenler genelde çalışmayı sürdürür ama yeni sürüme geçmek daha sağlıklıdır).
+
+4. Yeniden yükleyin ve başlatın:
 
 ```bash
 systemctl daemon-reload && systemctl restart espresso
 ```
 
-4. Node'un çalıştığını doğrulayın:
+5. Başlangıç loglarında deprecated env var uyarısı olup olmadığını kontrol edin:
 
 ```bash
-systemctl status espresso && curl -s http://localhost:8585/healthcheck
+sleep 15 && journalctl -u espresso --no-hostname -o cat -n 200 | grep -i "warning:"
 ```
 
-> 💡 Güncellemelerden haberdar olmak için [Espresso Network GitHub Releases](https://github.com/EspressoSystems/espresso-network/releases) sayfasını takip edin.
+6. Node'un çalıştığını ve doğru versiyonda olduğunu doğrulayın:
+
+```bash
+systemctl status espresso && \
+curl -s http://localhost:8585/healthcheck && \
+curl -s http://localhost:8585/v1/status/metrics | grep consensus_version
+```
+
+7. Herkese açık metadata dosyanızdaki `client_version`'ı güncelleyin:
+
+```bash
+sed -i 's/ESKI_TAG/YENI_TAG/g' /var/www/html/espresso/metadata.json
+```
+
+> 💡 Güncellemelerden haberdar olmak için [Espresso Network GitHub Releases](https://github.com/EspressoSystems/espresso-network/releases) sayfasını ve Discord `#mainnet-node-operator` kanalını takip edin.
+>
+> ⚠️ Bazı sürümler **query node**'lar (`query` modülünü çalıştıran node'lar) için DB migration içerir. `ExecStart` komutunuzda `query` modülü yoksa bu sizi etkilemez. Query node operatörleri güncelleme sonrası `/database/migration-status`'u kontrol etmeli — migration haftalar sürebilir ve migration sırasında binary'i geri almak desteklenmez.
+
+---
+
+## Sorun Giderme
+
+**Dashboard'da yüksek miss oranı:**
+- `/v1/status/metrics`'te `consensus_number_of_timeouts` değerini kontrol edin — hızla yükseliyorsa bir sorun var demektir.
+- Loglarda `Event sender queue overflow` (ERROR seviyesi) arayın — bu, node'un internal event queue'sunun yetişemediğini gösterir, genelde aynı sunucudaki diğer servislerin CPU/RAM baskısından kaynaklanır. İlgisiz servisleri durdurup `systemctl restart espresso` ile queue'yu temizleyin.
+- Loglarda `L1 client error` / `401` arayın — L1 RPC provider'ınız rate-limit'e girmiş veya yanlış yapılandırılmış olabilir. Adım 7'deki alternatif provider notuna bakın.
+- Restart sonrası `AutoNAT: probe reports this node may not be publicly reachable` genelde geçicidir — bir dakika sonra tekrar kontrol edin. Kalıcıysa `9000/UDP` portunun açık olduğunu ve `ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS`'in gerçek public IP'nizle eşleştiğini doğrulayın.
+
+**Node hiç imzalamıyor:**
+- `/v1/status/metrics` üzerinden `consensus_last_voted_view`'ın `consensus_current_view`'a yakın olduğunu doğrulayın (1-2 fark).
+- `0.env` dosyasındaki BLS key'in kayıt sırasında kullanılan key ile eşleştiğini doğrulayın — dikkatsizce çalıştırılan bir `keygen` komutu `0.env`'i sessizce overwrite edebilir (Yedekleme ve Kurtarma bölümüne bakın).
 
 ---
 
