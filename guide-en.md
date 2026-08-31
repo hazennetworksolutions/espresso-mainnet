@@ -14,8 +14,8 @@ _Docker installation, key generation, validator registration, systemd service se
 
 > **Author:** HazenNetworkSolutions  
 > **Network:** Espresso Mainnet 1  
-> **Image Tag:** 20260710  
-> **Last Updated:** 14 July 2026
+> **Image Tag:** 20260828  
+> **Last Updated:** 31 August 2026
 
 ---
 
@@ -30,6 +30,7 @@ _Docker installation, key generation, validator registration, systemd service se
 - [Step 6 — Prepare Ethereum Wallet](#step-6--prepare-ethereum-wallet)
 - [Step 7 — Get Ethereum RPC Endpoint](#step-7--get-ethereum-rpc-endpoint)
 - [Step 8 — Register Validator on Ethereum](#step-8--register-validator-on-ethereum)
+- [Step 8b — Register P2P Address and x25519 Key (Cliquenet)](#step-8b--register-p2p-address-and-x25519-key-cliquenet)
 - [Step 9 — Create Environment File](#step-9--create-environment-file)
 - [Step 10 — Create Systemd Service](#step-10--create-systemd-service)
 - [Step 11 — Start the Node](#step-11--start-the-node)
@@ -50,7 +51,7 @@ _Docker installation, key generation, validator registration, systemd service se
 | RAM | 8 GB |
 | Storage | Negligible (kilobytes) |
 | Network | Stable internet, public IP required |
-| Open Ports | 8585/TCP (API), 9000/UDP (LibP2P) |
+| Open Ports | 8585/TCP (API), 9000/UDP (LibP2P, legacy), 9977/TCP (Cliquenet P2P, required for fast finality upgrade) |
 
 > ✅ This is a **Regular Node** (non-DA). DA nodes are only required for the DA committee — most operators do not need them.
 
@@ -98,7 +99,7 @@ mkdir -p /opt/espresso/keys /opt/espresso/store
 Pull the Espresso sequencer image (Mainnet 1):
 
 ```bash
-docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710
+docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828
 ```
 
 Pull the staking CLI image:
@@ -119,7 +120,7 @@ Run the key generator to create your BLS (staking) and Schnorr (state) keys:
 
 ```bash
 docker run -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
   keygen -o /keys
 ```
 
@@ -144,7 +145,7 @@ Next, generate the **x25519 key** (required for the upcoming Cliquenet protocol 
 ```bash
 docker run --rm \
   -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
   keygen --scheme x25519 -o /keys
 ```
 
@@ -266,7 +267,7 @@ cat > /var/www/html/espresso/metadata.json << 'EOF'
   "description": "Your description here",
   "company_name": "Your Company Name",
   "company_website": "https://yourwebsite.com",
-  "client_version": "20260710",
+  "client_version": "20260828",
   "icon": {
     "14x14": {
       "@1x": "https://YOUR_DOMAIN/espresso/icon-14@1x.png",
@@ -378,6 +379,61 @@ history -c && history -w
 
 ---
 
+## Step 8b — Register P2P Address and x25519 Key (Cliquenet)
+
+Mainnet is upgrading to a new fast-finality protocol with a new P2P networking layer called **Cliquenet**. This replaces the old UDP-based LibP2P layer with an authenticated, encrypted TCP mesh. Every validator must publish an **x25519 public key** and a **P2P address** (`host:port`) on the stake table contract — this is a one-time registration, separate from Step 8.
+
+You already generated an x25519 keypair in Step 4. Derive the public key from it using the **current** node image (the format changed over time, so always re-derive with the image tag you're actually running):
+
+```bash
+docker run --rm -v /opt/espresso/keys:/keys \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
+  pub-key --scheme x25519 --key-file /keys/0.env
+```
+
+Expected output: `X25519_PK~...`
+
+> ⚠️ If this output does not match the `ESPRESSO_SEQUENCER_PUBLIC_X25519_KEY` value already stored in `0.env`, **trust the freshly derived value** — the private key is the source of truth, and the node will present whatever public key the current binary derives from it at runtime. Update `0.env` with the correct value before continuing.
+
+Register the key and P2P address on the stake table contract:
+
+```bash
+docker run --rm \
+  -e MNEMONIC="your twelve word seed phrase here" \
+  -e ACCOUNT_INDEX=0 \
+  -e L1_PROVIDER="https://mainnet.infura.io/v3/YOUR_API_KEY" \
+  -e STAKE_TABLE_ADDRESS="0xCeF474D372B5b09dEfe2aF187bf17338Dc704451" \
+  ghcr.io/espressosystems/espresso-sequencer/staking-cli:main \
+  staking-cli update-network-config \
+    --x25519-key X25519_PK~YOUR_DERIVED_PUBLIC_KEY \
+    --p2p-addr YOUR_SERVER_IP:9977
+```
+
+Use the **same wallet** (mnemonic + account index) that registered the validator in Step 8.
+
+Successful output:
+
+```
+Success! transaction hash: 0x...
+event: X25519KeyUpdated { validator: 0xYOUR_ADDRESS, x25519Key: 0x... }
+event: P2pAddrUpdated { validator: 0xYOUR_ADDRESS, p2pAddr: YOUR_SERVER_IP:9977 }
+```
+
+**Requirements for the P2P address:**
+
+| Requirement | Detail |
+| --- | --- |
+| Reachability | Must be reachable over **TCP** from the public internet on port `9977` (or your custom `ESPRESSO_NODE_CLIQUENET_BIND_ADDRESS` port) |
+| Address type | Public IP or DNS name — never private/loopback |
+| Outgoing traffic | If registering an IP, the node's **outgoing** connections must also originate from that same IP. Peers verify the source IP of every incoming connection against the registered address |
+| Behind a load balancer / NAT with a different egress IP | Register a **DNS name** instead of an IP — this disables the source-IP check |
+
+> 💡 **Timing:** A registered address takes effect after **one full epoch (~1 day)**. Until the fast-finality upgrade actually activates on Mainnet, registration mistakes can be fixed without consequence — but double-check before the upgrade date, since afterward an incorrect/unreachable address will affect your node's participation until a corrected registration takes effect.
+>
+> 💡 You can verify your outgoing IP matches your server's public IP with `curl -s -4 ifconfig.me` — if it doesn't match, you're likely behind NAT/a load balancer and should register a DNS name.
+
+---
+
 ## Step 9 — Create Environment File
 
 Create the environment configuration file for the node:
@@ -399,6 +455,7 @@ ESPRESSO_SEQUENCER_STORAGE_PATH=/store
 ESPRESSO_SEQUENCER_KEY_FILE=/keys/0.env
 ESPRESSO_SEQUENCER_LIBP2P_BIND_ADDRESS=0.0.0.0:9000
 ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS=YOUR_SERVER_IP:9000
+ESPRESSO_NODE_CLIQUENET_BIND_ADDRESS=0.0.0.0:9977
 ESPRESSO_NODE_STORAGE_PATH=/store
 ESPRESSO_NODE_TELEMETRY_LOGS_ENABLE=true
 ESPRESSO_NODE_TELEMETRY_METRICS_ENABLE=true
@@ -413,6 +470,8 @@ Replace:
 - `ESPRESSO_NODE_IDENTITY_COMPANY_NAME` / `ESPRESSO_NODE_IDENTITY_NODE_NAME` → your operator identity (same values as `company_name` / `name` in `metadata.json` from Step 5)
 
 > 💡 **Since the `20260710` release:** if `ESPRESSO_SEQUENCER_STORAGE_PATH` is set, `ESPRESSO_NODE_STORAGE_PATH` must be set to the same value. Telemetry vars let the Foundation collect your logs/metrics for network health monitoring — enabling them is recommended but optional. Identity vars are used to label your node in Foundation-side dashboards.
+>
+> 💡 **Since the `20260828` release (fast-finality staging):** `ESPRESSO_NODE_CLIQUENET_BIND_ADDRESS` (default `9977`) is required for the new Cliquenet P2P layer used in Step 8b. Your key file (`ESPRESSO_SEQUENCER_KEY_FILE` / `ESPRESSO_NODE_KEY_FILE`) must contain a valid x25519 private key — either the deprecated `ESPRESSO_SEQUENCER_PRIVATE_X25519_KEY` or the current `ESPRESSO_NODE_PRIVATE_X25519_KEY` name both work, but if you use a mnemonic instead of a key file, set `ESPRESSO_NODE_KEY_MNEMONIC` directly.
 
 Verify the file:
 
@@ -445,7 +504,8 @@ ExecStart=/usr/bin/docker run --name espresso \
   -v /opt/espresso/store:/store \
   -p 8585:8585 \
   -p 9000:9000/udp \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
+  -p 9977:9977/tcp \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
   sequencer -- http -- catchup -- status
 ExecStop=/usr/bin/docker stop espresso
 
@@ -498,6 +558,8 @@ Expected output:
 ```json
 {"status":"available","modules":{"catchup":{"0":200,"1":200},"state-signature":{"0":200,"1":200},"status":{"0":200,"1":200}}}
 ```
+
+> ⚠️ **Since the `20260828` release:** the `/healthcheck` response format changed — `modules` may come back empty (`{"status":"available","modules":{}}`) even on a healthy node. If you have external monitoring that checks the root `/` endpoint or parses the old `modules` structure, switch it to `/v1/status/metrics` or `/v1/status/block-height` instead — these are the endpoints the Foundation recommends going forward.
 
 **Verify your validator appears on the dashboard:**
 
@@ -683,6 +745,11 @@ sed -i 's/OLD_TAG/NEW_TAG/g' /var/www/html/espresso/metadata.json
 **Node not signing at all:**
 - Verify `consensus_last_voted_view` is close to `consensus_current_view` (within 1–2) via `/v1/status/metrics`.
 - Verify your BLS key in `0.env` matches the key used at registration — a `keygen` command run without care can silently overwrite `0.env` (see Backup & Recovery section).
+
+**`cliquenet::connection` "Connection refused" warnings in logs after the `20260828`+ update:**
+- This is expected during the staging period before the fast-finality upgrade activates — the node is attempting early Cliquenet handshakes with peers, but many haven't opened port `9977` yet. It does **not** affect consensus, which still runs over the legacy LibP2P/UDP layer until the upgrade activates.
+- Confirm your own node's health is unaffected by checking `consensus_number_of_timeouts` and `consensus_last_voted_view` vs `consensus_current_view` in `/v1/status/metrics` — these should look normal regardless of Cliquenet warnings.
+- Confirm your own `9977/TCP` port is listening and mapped: `ss -tlnp | grep 9977` and `docker port espresso`.
 
 ---
 
