@@ -14,8 +14,8 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 
 > **Yazar:** HazenNetworkSolutions  
 > **Ağ:** Espresso Mainnet 1  
-> **Image Tag:** 20260710  
-> **Son Güncelleme:** 14 Temmuz 2026
+> **Image Tag:** 20260828  
+> **Son Güncelleme:** 31 Ağustos 2026
 
 ---
 
@@ -30,6 +30,7 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 - [Adım 6 — Ethereum Cüzdanı Hazırlama](#adım-6--ethereum-cüzdanı-hazırlama)
 - [Adım 7 — Ethereum RPC Endpoint Alma](#adım-7--ethereum-rpc-endpoint-alma)
 - [Adım 8 — Validator'ı Ethereum'a Kayıt Etme](#adım-8--validatörü-ethereuma-kayıt-etme)
+- [Adım 8b — P2P Adresi ve x25519 Key Kaydı (Cliquenet)](#adım-8b--p2p-adresi-ve-x25519-key-kaydı-cliquenet)
 - [Adım 9 — Environment Dosyası Oluşturma](#adım-9--environment-dosyası-oluşturma)
 - [Adım 10 — Systemd Servis Dosyası Oluşturma](#adım-10--systemd-servis-dosyası-oluşturma)
 - [Adım 11 — Node'u Başlatma](#adım-11--nodeu-başlatma)
@@ -50,7 +51,7 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 | RAM | 8 GB |
 | Depolama | Yok denecek kadar az (kilobyte seviyesi) |
 | Ağ | Stabil internet, public IP zorunlu |
-| Açık Portlar | 8585/TCP (API), 9000/UDP (LibP2P) |
+| Açık Portlar | 8585/TCP (API), 9000/UDP (LibP2P, eski), 9977/TCP (Cliquenet P2P, fast finality yükseltmesi için gerekli) |
 
 > ✅ Bu rehber **Regular Node** (DA olmayan) kurulumunu anlatmaktadır. DA node'ları yalnızca DA komitesindekiler için gereklidir — çoğu operatör buna ihtiyaç duymaz.
 
@@ -98,7 +99,7 @@ mkdir -p /opt/espresso/keys /opt/espresso/store
 Espresso sequencer image'ını indirin (Mainnet 1):
 
 ```bash
-docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710
+docker pull ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828
 ```
 
 Staking CLI image'ını indirin:
@@ -119,7 +120,7 @@ BLS (staking) ve Schnorr (state) key'lerinizi oluşturmak için key generator'ı
 
 ```bash
 docker run -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
   keygen -o /keys
 ```
 
@@ -144,7 +145,7 @@ Ardından **x25519 key** oluşturun (yaklaşan Cliquenet protokol yükseltmesi i
 ```bash
 docker run --rm \
   -v /opt/espresso/keys:/keys \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
   keygen --scheme x25519 -o /keys
 ```
 
@@ -266,7 +267,7 @@ cat > /var/www/html/espresso/metadata.json << 'EOF'
   "description": "Açıklamanız",
   "company_name": "Şirket Adınız",
   "company_website": "https://websiteniz.com",
-  "client_version": "20260710",
+  "client_version": "20260828",
   "icon": {
     "14x14": {
       "@1x": "https://DOMAININIZ/espresso/icon-14@1x.png",
@@ -378,6 +379,61 @@ history -c && history -w
 
 ---
 
+## Adım 8b — P2P Adresi ve x25519 Key Kaydı (Cliquenet)
+
+Mainnet, yeni fast-finality protokolüne geçiyor ve bu geçiş **Cliquenet** adında yeni bir P2P ağ katmanı getiriyor. Bu, eski UDP tabanlı LibP2P katmanının yerini alan, kimlik doğrulamalı ve şifreli bir TCP mesh ağı. Her validator, stake table kontratına bir **x25519 public key** ve bir **P2P adresi** (`host:port`) kaydetmek zorunda — bu, Adım 8'den bağımsız, tek seferlik bir kayıt işlemi.
+
+Adım 4'te bir x25519 keypair zaten oluşturmuştunuz. Public key'i **güncel** node image'ı ile bu private key'den türetin (format zaman içinde değişebildiği için her zaman şu an çalıştırdığınız image tag'i ile yeniden türetin):
+
+```bash
+docker run --rm -v /opt/espresso/keys:/keys \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
+  pub-key --scheme x25519 --key-file /keys/0.env
+```
+
+Beklenen çıktı: `X25519_PK~...`
+
+> ⚠️ Bu çıktı, `0.env` dosyasında zaten kayıtlı olan `ESPRESSO_SEQUENCER_PUBLIC_X25519_KEY` değeriyle eşleşmiyorsa, **yeni türetilen değere güvenin** — private key gerçek kaynak, node çalışırken güncel binary'nin private key'den türettiği public key'i sunacak. Devam etmeden önce `0.env` dosyasını doğru değerle güncelleyin.
+
+Key'i ve P2P adresini stake table kontratına kaydedin:
+
+```bash
+docker run --rm \
+  -e MNEMONIC="on iki kelimelik seed phrase buraya yazilir" \
+  -e ACCOUNT_INDEX=0 \
+  -e L1_PROVIDER="https://mainnet.infura.io/v3/API_KEY" \
+  -e STAKE_TABLE_ADDRESS="0xCeF474D372B5b09dEfe2aF187bf17338Dc704451" \
+  ghcr.io/espressosystems/espresso-sequencer/staking-cli:main \
+  staking-cli update-network-config \
+    --x25519-key X25519_PK~TURETILEN_PUBLIC_KEY \
+    --p2p-addr SUNUCU_IP:9977
+```
+
+Adım 8'de validator'ı kaydettiğiniz **aynı cüzdanı** (mnemonic + account index) kullanın.
+
+Başarılı çıktı:
+
+```
+Success! transaction hash: 0x...
+event: X25519KeyUpdated { validator: 0xADRESINIZ, x25519Key: 0x... }
+event: P2pAddrUpdated { validator: 0xADRESINIZ, p2pAddr: SUNUCU_IP:9977 }
+```
+
+**P2P adresi için gereksinimler:**
+
+| Gereksinim | Açıklama |
+| --- | --- |
+| Erişilebilirlik | Public internetten **TCP** üzerinden `9977` portuna (veya özel `ESPRESSO_NODE_CLIQUENET_BIND_ADDRESS` portunuza) erişilebilir olmalı |
+| Adres türü | Public IP veya DNS adı — private/loopback adres olamaz |
+| Giden trafik | IP kaydediliyorsa, node'un **giden (outgoing)** bağlantıları da aynı IP'den çıkmalı. Peer'lar gelen her bağlantının kaynak IP'sini kayıtlı adresle karşılaştırır |
+| Load balancer / farklı egress IP'li NAT arkasında | IP yerine bir **DNS adı** kaydedin — bu, kaynak IP kontrolünü devre dışı bırakır |
+
+> 💡 **Zamanlama:** Kaydedilen adres, **1 tam epoch (~1 gün)** sonra devreye girer. Fast-finality yükseltmesi Mainnet'te aktif olana kadar kayıt hataları sonuçsuz düzeltilebilir — ama yükseltme tarihinden önce her şeyi kontrol edin, çünkü sonrasında yanlış/erişilemez bir adres, düzeltme devreye girene kadar node'unuzun katılımını etkiler.
+>
+> 💡 Giden IP'nizin sunucunuzun public IP'siyle eşleştiğini `curl -s -4 ifconfig.me` ile doğrulayabilirsiniz — eşleşmiyorsa muhtemelen NAT/load balancer arkasındasınız ve bir DNS adı kaydetmelisiniz.
+
+---
+
 ## Adım 9 — Environment Dosyası Oluşturma
 
 Node için environment konfigürasyon dosyasını oluşturun:
@@ -399,6 +455,7 @@ ESPRESSO_SEQUENCER_STORAGE_PATH=/store
 ESPRESSO_SEQUENCER_KEY_FILE=/keys/0.env
 ESPRESSO_SEQUENCER_LIBP2P_BIND_ADDRESS=0.0.0.0:9000
 ESPRESSO_SEQUENCER_LIBP2P_ADVERTISE_ADDRESS=SUNUCU_IP:9000
+ESPRESSO_NODE_CLIQUENET_BIND_ADDRESS=0.0.0.0:9977
 ESPRESSO_NODE_STORAGE_PATH=/store
 ESPRESSO_NODE_TELEMETRY_LOGS_ENABLE=true
 ESPRESSO_NODE_TELEMETRY_METRICS_ENABLE=true
@@ -413,6 +470,8 @@ Değiştirin:
 - `ESPRESSO_NODE_IDENTITY_COMPANY_NAME` / `ESPRESSO_NODE_IDENTITY_NODE_NAME` → operatör kimliğiniz (Adım 5'teki `metadata.json` dosyasındaki `company_name` / `name` ile aynı değerler)
 
 > 💡 **`20260710` sürümünden itibaren:** `ESPRESSO_SEQUENCER_STORAGE_PATH` set edilmişse, `ESPRESSO_NODE_STORAGE_PATH` de aynı değerle set edilmelidir. Telemetry değişkenleri Foundation'ın log/metric verilerinizi ağ sağlığı izleme amacıyla toplamasını sağlar — açmanız önerilir ama zorunlu değil. Identity değişkenleri node'unuzu Foundation tarafındaki dashboard'larda etiketlemek için kullanılır.
+>
+> 💡 **`20260828` sürümünden itibaren (fast-finality hazırlığı):** Adım 8b'de kullanılan yeni Cliquenet P2P katmanı için `ESPRESSO_NODE_CLIQUENET_BIND_ADDRESS` (varsayılan `9977`) gereklidir. Key dosyanız (`ESPRESSO_SEQUENCER_KEY_FILE` / `ESPRESSO_NODE_KEY_FILE`) geçerli bir x25519 private key içermelidir — deprecated `ESPRESSO_SEQUENCER_PRIVATE_X25519_KEY` veya güncel `ESPRESSO_NODE_PRIVATE_X25519_KEY` adlarının ikisi de çalışır, ancak key file yerine mnemonic kullanıyorsanız doğrudan `ESPRESSO_NODE_KEY_MNEMONIC` set edin.
 
 Dosyayı doğrulayın:
 
@@ -445,7 +504,8 @@ ExecStart=/usr/bin/docker run --name espresso \
   -v /opt/espresso/store:/store \
   -p 8585:8585 \
   -p 9000:9000/udp \
-  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260710 \
+  -p 9977:9977/tcp \
+  ghcr.io/espressosystems/espresso-sequencer/sequencer:20260828 \
   sequencer -- http -- catchup -- status
 ExecStop=/usr/bin/docker stop espresso
 
@@ -497,6 +557,8 @@ Beklenen çıktı:
 ```json
 {"status":"available","modules":{"catchup":{"0":200,"1":200},"state-signature":{"0":200,"1":200},"status":{"0":200,"1":200}}}
 ```
+
+> ⚠️ **`20260828` sürümünden itibaren:** `/healthcheck` yanıt formatı değişti — sağlıklı bir node'da bile `modules` boş dönebilir (`{"status":"available","modules":{}}`). Kök `/` endpoint'ini kontrol eden veya eski `modules` yapısını parse eden harici bir izleme sisteminiz varsa, bunu `/v1/status/metrics` veya `/v1/status/block-height`'a geçirin — Foundation'ın bundan sonra önerdiği endpoint'ler bunlar.
 
 **Validator'ınızın dashboard'da göründüğünü doğrulayın:**
 
@@ -682,6 +744,11 @@ sed -i 's/ESKI_TAG/YENI_TAG/g' /var/www/html/espresso/metadata.json
 **Node hiç imzalamıyor:**
 - `/v1/status/metrics` üzerinden `consensus_last_voted_view`'ın `consensus_current_view`'a yakın olduğunu doğrulayın (1-2 fark).
 - `0.env` dosyasındaki BLS key'in kayıt sırasında kullanılan key ile eşleştiğini doğrulayın — dikkatsizce çalıştırılan bir `keygen` komutu `0.env`'i sessizce overwrite edebilir (Yedekleme ve Kurtarma bölümüne bakın).
+
+**`20260828`+ güncellemesinden sonra loglarda `cliquenet::connection` "Connection refused" uyarıları:**
+- Fast-finality yükseltmesi aktif olana kadarki hazırlık dönemi için bu normaldir — node, peer'larla erken Cliquenet handshake'leri deniyor ama çoğu henüz `9977` portunu açmamış. Bu, consensus'u **etkilemez** — consensus, yükseltme aktive olana kadar hâlâ eski LibP2P/UDP katmanı üzerinden çalışır.
+- `/v1/status/metrics`'te `consensus_number_of_timeouts` ve `consensus_last_voted_view` vs `consensus_current_view` değerlerinin normal göründüğünü kontrol ederek kendi node'unuzun sağlığının bu uyarılardan etkilenmediğini doğrulayın.
+- Kendi `9977/TCP` portunuzun dinlendiğini ve map edildiğini doğrulayın: `ss -tlnp | grep 9977` ve `docker port espresso`.
 
 ---
 
