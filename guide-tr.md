@@ -29,7 +29,7 @@ _Docker kurulumu, key üretimi, validator kaydı, systemd servis kurulumu — ad
 - [Adım 5 — Metadata JSON Dosyası Oluşturma](#adım-5--metadata-json-dosyası-oluşturma)
 - [Adım 6 — Ethereum Cüzdanı Hazırlama](#adım-6--ethereum-cüzdanı-hazırlama)
 - [Adım 7 — Ethereum RPC Endpoint Alma](#adım-7--ethereum-rpc-endpoint-alma)
-- [Adım 8 — Validator'ı Ethereum'a Kayıt Etme](#adım-8--validatörü-ethereuma-kayıt-etme)
+- [Adım 8 — Validator'ı Ethereum'a Kayıt Etme](#adım-8--validatorü-ethereuma-kayıt-etme)
 - [Adım 8b — P2P Adresi ve x25519 Key Kaydı (Cliquenet)](#adım-8b--p2p-adresi-ve-x25519-key-kaydı-cliquenet)
 - [Adım 9 — Environment Dosyası Oluşturma](#adım-9--environment-dosyası-oluşturma)
 - [Adım 10 — Systemd Servis Dosyası Oluşturma](#adım-10--systemd-servis-dosyası-oluşturma)

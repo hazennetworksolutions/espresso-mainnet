@@ -35,7 +35,7 @@ The Espresso Network is an L1 base layer providing fast, secure consensus and tr
 The **Validator Bootstrap Program** offers up to 30 selected operators an initial delegation of **1,000,000 ESP** to help establish their presence on the network.
 
 - Bootstrap Program: [paragraph.com/@espressofndn/validator-bootstrap-program](https://paragraph.com/@espressofndn/validator-bootstrap-program)
-- Official Docs: [docs.espressosys.com](https://docs.espressosys.com/network/guides/node-operators/running-a-mainnet-1-node)
+- Official Docs: [docs.espressosys.com](https://docs.espressosys.com/network/developer/operators/run-a-node)
 - Staking Dashboard: [stake.espresso.network](https://stake.espresso.network)
 
 ---
